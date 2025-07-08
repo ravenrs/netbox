@@ -85,10 +85,16 @@ def process_event_rules(event_rules, object_type, event_type, data, username=Non
     user = User.objects.get(username=username) if username else None
 
     for event_rule in event_rules:
+        # Added snapshots to body to use it in condition
+        if snapshots:
+            data.update(dict(snapshots=snapshots))
 
         # Evaluate event rule conditions (if any)
         if not event_rule.eval_conditions(data):
             continue
+
+        if snapshots:
+            data.pop('snapshots', None)
 
         # Compile event data
         event_data = event_rule.action_data or {}

@@ -5,7 +5,7 @@ from core.events import *
 from dcim.choices import SiteStatusChoices
 from dcim.models import Site
 from extras.conditions import Condition, ConditionSet
-from extras.events import serialize_for_event
+from extras.events import serialize_for_event, get_snapshots
 from extras.forms import EventRuleForm
 from extras.models import EventRule, Webhook
 
@@ -287,6 +287,42 @@ class ConditionSetTest(TestCase):
 
         # Evaluate the conditions (status NOT in ['planned, 'staging'])
         self.assertTrue(event_rule.eval_conditions(data))
+
+    def test_event_rule_condition_with_logical_operation_and_snapshots(self):
+        """
+        Test evaluation of EventRule with logical operation (in) and using snapshots data
+        """
+        event_rule = EventRule(
+            name='Event Rule 1',
+            event_types=[OBJECT_CREATED, OBJECT_UPDATED],
+            conditions={
+                "attr": "snapshots.prechange.status",
+                "value": ["planned", "staging"],
+                "op": "in",
+            }
+        )
+
+        # Create a Site to evaluate - Status = Planned and change it to Active.
+        site = Site.objects.create(name='Site 1', slug='site-1', status=SiteStatusChoices.STATUS_PLANNED)
+        snapshots = dict(prechange=get_snapshots(site, OBJECT_UPDATED or {}).get('postchange', {}))
+        site.status = SiteStatusChoices.STATUS_ACTIVE
+        site.save()
+        data = serialize_for_event(instance=site)
+        data.update(dict(snapshots=snapshots))
+
+        # Evaluate the conditions (snapshot pre-change status is 'planned')
+        self.assertTrue(event_rule.eval_conditions(data))
+
+        # Create a Site to evaluate - Status = Planned and change it to Active.
+        site = Site.objects.create(name='Site 2', slug='site-2', status=SiteStatusChoices.STATUS_ACTIVE)
+        snapshots = dict(prechange=get_snapshots(site, OBJECT_UPDATED or {}).get('postchange', {}))
+        site.status = SiteStatusChoices.STATUS_ACTIVE
+        site.save()
+        data = serialize_for_event(instance=site)
+        data.update(dict(snapshots=snapshots))
+
+        # Evaluate the conditions (snapshot pre-change status is 'active')
+        self.assertFalse(event_rule.eval_conditions(data))
 
     def test_event_rule_conditions_with_incorrect_key_must_return_false(self):
         """
